@@ -1,5 +1,5 @@
 [project]
-name = "vetta"
+name = "ViaMontana"
 version = "0.1.0"
 description = "Multiday Swiss hut-to-hut hiking planner"
 requires-python = ">=3.11"

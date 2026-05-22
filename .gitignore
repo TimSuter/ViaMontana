@@ -2,10 +2,13 @@
 build/
 cache/
 vetta.egg-info/
+ViaMontana.egg-info/
+__pycache__/
 
 data/swisstopo_wanderwege/*.gpkg
 data/swisstopo_wanderwege/*.gpkg.zip
 data/swisstopo_wanderwege/*_graph.pkl
+data/swisstopo_wanderwege/*.sqlite
 
 *.pkl
 *.html

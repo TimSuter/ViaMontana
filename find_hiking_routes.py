@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import math
 import pickle
+import sqlite3
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -45,10 +47,12 @@ DATA_DIR = Path("data") / "swisstopo_wanderwege"
 DEFAULT_ZIP = DATA_DIR / "swisstlm3d-wanderwege_2056_5728.gpkg.zip"
 DEFAULT_GPKG = DATA_DIR / "swisstlm3d-wanderwege_2056_5728.gpkg"
 DEFAULT_GRAPH = DATA_DIR / "swisstlm3d_wanderwege_graph.pkl"
+DEFAULT_ROUTE_CACHE = DATA_DIR / "hut_route_cache.sqlite"
 DEFAULT_ROUTES = Path("hut_hiking_routes.csv")
 DEFAULT_ITINERARIES = Path("hut_hiking_itineraries.csv")
 DEFAULT_MAP = Path("hiking_routes_map.html")
 DOWNLOAD_CHUNK_SIZE = 1024 * 1024
+ROUTE_CACHE_SCHEMA_VERSION = "1"
 
 DEFAULT_DAYS = 3
 DEFAULT_MAX_MAP_ITINERARIES = 25
@@ -132,6 +136,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--zip-path", type=Path, default=DEFAULT_ZIP)
     parser.add_argument("--gpkg-path", type=Path, default=DEFAULT_GPKG)
     parser.add_argument("--graph-path", type=Path, default=DEFAULT_GRAPH)
+    parser.add_argument("--route-cache", type=Path, default=DEFAULT_ROUTE_CACHE)
+    parser.add_argument(
+        "--init-route-cache",
+        action="store_true",
+        help=(
+            "Create the SQLite route cache schema and register the current routing "
+            "profile, then exit without calculating routes."
+        ),
+    )
     parser.add_argument("--routes-output", type=Path, default=DEFAULT_ROUTES)
     parser.add_argument("--itineraries-output", type=Path, default=DEFAULT_ITINERARIES)
     parser.add_argument("--map-output", type=Path, default=DEFAULT_MAP)
@@ -567,6 +580,165 @@ def build_route_table(
     )
 
 
+def initialize_route_cache(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(path) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS route_cache_metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS route_runs (
+                run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                huts_path TEXT NOT NULL,
+                graph_path TEXT NOT NULL,
+                included_hut_count INTEGER NOT NULL,
+                source_hut_count INTEGER NOT NULL,
+                neighbor_radius_km REAL NOT NULL,
+                min_hours REAL NOT NULL,
+                max_hours REAL NOT NULL,
+                walking_speed_kmh REAL NOT NULL,
+                ascent_m_per_hour REAL NOT NULL,
+                descent_m_per_hour REAL NOT NULL,
+                status TEXT NOT NULL,
+                notes TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS routes (
+                run_id INTEGER NOT NULL,
+                source_index INTEGER NOT NULL,
+                source_hut TEXT,
+                destination_index INTEGER NOT NULL,
+                destination_hut TEXT,
+                duration_h REAL NOT NULL,
+                distance_km REAL NOT NULL,
+                ascent_m REAL NOT NULL,
+                descent_m REAL NOT NULL,
+                source_snap_m REAL NOT NULL,
+                destination_snap_m REAL NOT NULL,
+                geometry_wkt TEXT NOT NULL,
+                PRIMARY KEY (run_id, source_index, destination_index),
+                FOREIGN KEY (run_id) REFERENCES route_runs(run_id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_routes_source
+                ON routes(run_id, source_index);
+            CREATE INDEX IF NOT EXISTS idx_routes_destination
+                ON routes(run_id, destination_index);
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO route_cache_metadata(key, value)
+            VALUES ('schema_version', ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (ROUTE_CACHE_SCHEMA_VERSION,),
+        )
+
+
+def create_route_cache_run(args: argparse.Namespace, huts: gpd.GeoDataFrame) -> int:
+    initialize_route_cache(args.route_cache)
+    source_count = len(huts)
+    with sqlite3.connect(args.route_cache) as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO route_runs (
+                created_at,
+                huts_path,
+                graph_path,
+                included_hut_count,
+                source_hut_count,
+                neighbor_radius_km,
+                min_hours,
+                max_hours,
+                walking_speed_kmh,
+                ascent_m_per_hour,
+                descent_m_per_hour,
+                status,
+                notes
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                dt.datetime.now(dt.UTC).isoformat(),
+                str(args.huts),
+                str(args.graph_path),
+                len(huts),
+                source_count,
+                args.neighbor_radius_km,
+                args.min_hours,
+                args.max_hours,
+                args.walking_speed_kmh,
+                args.ascent_m_per_hour,
+                args.descent_m_per_hour,
+                "prepared",
+                "Routes have not been calculated for this run yet.",
+            ),
+        )
+        return int(cursor.lastrowid)
+
+
+def write_routes_to_route_cache(
+    path: Path,
+    run_id: int,
+    routes: pd.DataFrame,
+) -> None:
+    if routes.empty:
+        return
+
+    rows = []
+    for row in routes[ROUTE_COLUMNS].itertuples(index=False):
+        rows.append((run_id, *row))
+
+    with sqlite3.connect(path) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.executemany(
+            """
+            INSERT OR REPLACE INTO routes (
+                run_id,
+                source_index,
+                source_hut,
+                destination_index,
+                destination_hut,
+                duration_h,
+                distance_km,
+                ascent_m,
+                descent_m,
+                source_snap_m,
+                destination_snap_m,
+                geometry_wkt
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+        connection.execute(
+            "UPDATE route_runs SET status = ? WHERE run_id = ?",
+            ("routes_written", run_id),
+        )
+
+
+def read_cached_routes(
+    path: Path,
+    run_id: int,
+    source_index: int | None = None,
+) -> pd.DataFrame:
+    query = "SELECT {} FROM routes WHERE run_id = ?".format(", ".join(ROUTE_COLUMNS))
+    params: list[Any] = [run_id]
+    if source_index is not None:
+        query += " AND source_index = ?"
+        params.append(source_index)
+    query += " ORDER BY source_hut, duration_h, destination_hut"
+
+    with sqlite3.connect(path) as connection:
+        return pd.read_sql_query(query, connection, params=params)
+
+
 def can_visit_hut(
     destination_index: int,
     visited_indices: list[int],
@@ -968,6 +1140,13 @@ def main() -> None:
     else:
         huts = filter_huts_by_inclusion_column(huts)
         print(f"Included {len(huts)} of {before_count} huts from: {args.huts}")
+
+    if args.init_route_cache:
+        run_id = create_route_cache_run(args, huts)
+        print(f"Initialized route cache: {args.route_cache}")
+        print(f"Prepared route run id: {run_id}")
+        print("No routes were calculated.")
+        return
 
     graph = load_or_build_graph(args)
 

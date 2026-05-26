@@ -23,6 +23,7 @@ let baseLayers;
 let hikingPathLayer;
 let activeBaseLayer;
 const hutMarkersByName = new Map();
+let allHutLatLngs = [];
 let selectedCard;
 let hasCalculatedRoute = false;
 
@@ -76,6 +77,28 @@ function renderEmpty(message) {
   results.appendChild(empty);
 }
 
+function resetMapView() {
+  routeLayer.clearLayers();
+  if (selectedCard) {
+    selectedCard.classList.remove("is-selected");
+  }
+  selectedCard = undefined;
+  hasCalculatedRoute = false;
+  if (allHutLatLngs.length) {
+    map.fitBounds(allHutLatLngs, { padding: [24, 24] });
+  } else {
+    map.fitBounds(switzerlandBounds);
+  }
+}
+
+function resetPlannerView() {
+  clearResults();
+  resultsTitle.textContent = "No search yet";
+  setStatus("Enter a hut and route constraints.");
+  setMapSource("osm");
+  resetMapView();
+}
+
 function setMapSource(source) {
   const nextBaseLayer = baseLayers[source] ?? baseLayers.swisstopo;
   if (activeBaseLayer) {
@@ -98,11 +121,11 @@ function initMap() {
   });
 
   map.createPane("hutPane");
-  map.getPane("hutPane").style.zIndex = 650;
+  map.getPane("hutPane").style.zIndex = 610;
   map.createPane("routePane");
-  map.getPane("routePane").style.zIndex = 660;
+  map.getPane("routePane").style.zIndex = 620;
   map.createPane("selectedHutPane");
-  map.getPane("selectedHutPane").style.zIndex = 720;
+  map.getPane("selectedHutPane").style.zIndex = 640;
 
   baseLayers = {
     swisstopo: L.tileLayer(
@@ -142,11 +165,11 @@ async function loadHutMarkers() {
   const markers = await response.json();
   hutLayer.clearLayers();
   hutMarkersByName.clear();
-  const latLngs = [];
+  allHutLatLngs = [];
   markers.forEach((marker) => {
     hutMarkersByName.set(marker.hut, marker);
     const latLng = [marker.latitude, marker.longitude];
-    latLngs.push(latLng);
+    allHutLatLngs.push(latLng);
     const hutMarker = L.circleMarker(latLng, {
       pane: "hutPane",
       interactive: true,
@@ -162,8 +185,8 @@ async function loadHutMarkers() {
     hutMarker.bindPopup(hutDetailsHtml(marker));
     hutMarker.addTo(hutLayer);
   });
-  if (latLngs.length) {
-    map.fitBounds(latLngs, { padding: [24, 24] });
+  if (allHutLatLngs.length) {
+    map.fitBounds(allHutLatLngs, { padding: [24, 24] });
   }
 }
 
@@ -404,6 +427,13 @@ form.addEventListener("submit", async (event) => {
     setStatus(error.message);
     renderEmpty("Check that the route database exists and the hut name is valid.");
   }
+});
+
+form.addEventListener("reset", () => {
+  window.setTimeout(() => {
+    resetPlannerView();
+    loadHutOptions();
+  });
 });
 
 let hutSearchTimer;

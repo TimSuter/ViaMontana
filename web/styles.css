@@ -182,6 +182,25 @@ button:hover {
   background: var(--accent-strong);
 }
 
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 18px;
+  row-gap: 14px;
+  align-items: center;
+  justify-content: start;
+}
+
+.secondary-button {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--accent-strong);
+}
+
+.secondary-button:hover {
+  background: var(--accent-soft);
+}
+
 .workspace {
   display: grid;
   grid-template-columns: minmax(280px, 25%) minmax(0, 1fr);
@@ -576,7 +595,7 @@ button:hover {
   }
 
   .controls fieldset:last-of-type,
-  .controls button {
+  .form-actions {
     grid-column: span 2;
   }
 }
@@ -614,7 +633,7 @@ button:hover {
 
   .controls > label:first-child,
   .controls fieldset,
-  .controls button {
+  .form-actions {
     grid-column: 1 / -1;
   }
 
@@ -652,8 +671,13 @@ button:hover {
 
   .controls > label,
   .controls fieldset,
-  .controls button {
+  .form-actions {
     grid-column: 1 / -1;
+  }
+
+  .form-actions {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .planner-panel,

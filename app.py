@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from functools import lru_cache
+from math import asin, cos, radians, sin, sqrt
 from pathlib import Path
 from typing import Annotated
 
@@ -17,6 +18,21 @@ STATIC_DIR = Path(__file__).parent / "web"
 MEDIA_DIR = Path(__file__).parent / "media"
 MAX_DAYS = 10
 DEFAULT_RESULT_LIMIT = 50
+MAX_RESULT_LIMIT = 200
+EARTH_RADIUS_KM = 6371.0088
+GEOMETRY_KEY_PRECISION = 5
+
+
+def normalize_result_limit(value: str | None) -> int:
+    if value in (None, "", "null"):
+        return DEFAULT_RESULT_LIMIT
+    try:
+        limit = int(value)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail="limit must be an integer.") from error
+    if not 1 <= limit <= MAX_RESULT_LIMIT:
+        raise HTTPException(status_code=422, detail=f"limit must be between 1 and {MAX_RESULT_LIMIT}.")
+    return limit
 
 
 class RouteLeg(BaseModel):
@@ -159,6 +175,11 @@ def route_leg_from_row(row: sqlite3.Row, include_geometry: bool) -> RouteLeg:
 
 
 def parse_linestring_endpoints(geometry_wkt: str) -> tuple[tuple[float, float], tuple[float, float]]:
+    coordinates = parse_linestring_coordinates(geometry_wkt)
+    return coordinates[0], coordinates[-1]
+
+
+def parse_linestring_coordinates(geometry_wkt: str) -> list[tuple[float, float]]:
     prefix = "LINESTRING"
     text = geometry_wkt.strip()
     if not text.upper().startswith(prefix):
@@ -172,7 +193,66 @@ def parse_linestring_endpoints(geometry_wkt: str) -> tuple[tuple[float, float], 
         coordinates.append((float(values[0]), float(values[1])))
     if len(coordinates) < 2:
         raise ValueError("Route geometry does not contain enough coordinates.")
-    return coordinates[0], coordinates[-1]
+    return coordinates
+
+
+def haversine_km(start: tuple[float, float], end: tuple[float, float]) -> float:
+    start_lon, start_lat = start
+    end_lon, end_lat = end
+    delta_lat = radians(end_lat - start_lat)
+    delta_lon = radians(end_lon - start_lon)
+    start_lat_rad = radians(start_lat)
+    end_lat_rad = radians(end_lat)
+    value = (
+        sin(delta_lat / 2) ** 2
+        + cos(start_lat_rad) * cos(end_lat_rad) * sin(delta_lon / 2) ** 2
+    )
+    return 2 * EARTH_RADIUS_KM * asin(sqrt(value))
+
+
+def segment_key(
+    start: tuple[float, float], end: tuple[float, float]
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    rounded_start = (round(start[0], GEOMETRY_KEY_PRECISION), round(start[1], GEOMETRY_KEY_PRECISION))
+    rounded_end = (round(end[0], GEOMETRY_KEY_PRECISION), round(end[1], GEOMETRY_KEY_PRECISION))
+    return tuple(sorted((rounded_start, rounded_end)))
+
+
+@lru_cache(maxsize=10000)
+def route_segments(
+    geometry_wkt: str,
+) -> tuple[tuple[tuple[tuple[float, float], tuple[float, float]], float], ...]:
+    coordinates = parse_linestring_coordinates(geometry_wkt)
+    return tuple(
+        (segment_key(start, end), haversine_km(start, end))
+        for start, end in zip(coordinates, coordinates[1:])
+    )
+
+
+def route_overlap_ratio(legs: list[RouteLeg]) -> float:
+    segment_lengths: dict[tuple[tuple[float, float], tuple[float, float]], float] = {}
+    total_length_km = 0.0
+    duplicate_length_km = 0.0
+
+    for leg in legs:
+        if leg.geometry_wkt is None:
+            continue
+        for key, length_km in route_segments(leg.geometry_wkt):
+            previous_length = segment_lengths.get(key)
+            if previous_length is None:
+                segment_lengths[key] = length_km
+            else:
+                duplicate_length_km += min(length_km, previous_length)
+            total_length_km += length_km
+
+    if total_length_km == 0:
+        return 0.0
+    return duplicate_length_km / total_length_km
+
+
+def hide_itinerary_geometry(itinerary: Itinerary) -> None:
+    for leg in itinerary.legs:
+        leg.geometry_wkt = None
 
 
 def max_hiking_category(categories: list[str]) -> str:
@@ -323,9 +403,10 @@ def search_routes(
     max_duration_h: Annotated[float, Query(ge=0)] = 14.0,
     min_elevation_change_m: Annotated[float, Query(ge=0)] = 0.0,
     max_elevation_change_m: Annotated[float, Query(ge=0)] = 5000.0,
-    limit: Annotated[int, Query(ge=1, le=200)] = DEFAULT_RESULT_LIMIT,
+    limit: str | None = None,
     include_geometry: bool = False,
 ) -> SearchResponse:
+    result_limit = normalize_result_limit(limit)
     if max_duration_h < min_duration_h:
         raise HTTPException(status_code=400, detail="max_duration_h must be >= min_duration_h.")
     if max_elevation_change_m < min_elevation_change_m:
@@ -362,7 +443,7 @@ def search_routes(
 
     adjacency: dict[str, list[RouteLeg]] = {}
     for row in rows:
-        leg = route_leg_from_row(row, include_geometry)
+        leg = route_leg_from_row(row, include_geometry=True)
         adjacency.setdefault(leg.start_hut, []).append(leg)
 
     itineraries: list[Itinerary] = []
@@ -385,12 +466,16 @@ def search_routes(
     expand(start_hut, {start_hut}, [])
     itineraries.sort(
         key=lambda itinerary: (
+            route_overlap_ratio(itinerary.legs),
             itinerary.duration_match_score,
             abs(itinerary.average_daily_duration_h - target_duration_h),
             itinerary.total_distance_km,
         )
     )
-    limited_itineraries = itineraries[:limit]
+    limited_itineraries = itineraries[:result_limit]
+    if not include_geometry:
+        for itinerary in limited_itineraries:
+            hide_itinerary_geometry(itinerary)
 
     return SearchResponse(
         start_hut=start_hut,

@@ -114,7 +114,6 @@ h3 {
   grid-template-columns:
     minmax(230px, 1.7fr)
     minmax(76px, 0.45fr)
-    minmax(92px, 0.55fr)
     minmax(230px, 1.2fr)
     minmax(250px, 1.3fr)
     minmax(130px, 0.65fr);
@@ -505,26 +504,19 @@ button:hover {
 }
 
 .metrics {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px 12px;
+  border-radius: 7px;
+  padding: 9px 10px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
 }
 
 .metric {
-  display: inline-flex;
-  align-items: center;
-  min-height: 26px;
-  border-radius: 7px;
-  padding: 4px 8px;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
+  display: block;
   font-size: 0.8rem;
   font-weight: 700;
-}
-
-.category {
-  background: #fff0f0;
-  color: var(--warning);
 }
 
 .legs {

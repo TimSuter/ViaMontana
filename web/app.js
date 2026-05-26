@@ -253,9 +253,9 @@ async function loadHutOptions(search = "") {
   );
 }
 
-function metric(label, value, className = "") {
+function metric(label, value) {
   const item = document.createElement("span");
-  item.className = `metric ${className}`.trim();
+  item.className = "metric";
   item.textContent = `${label}: ${value}`;
   return item;
 }
@@ -281,15 +281,12 @@ function renderItinerary(itinerary, index) {
   const metrics = document.createElement("div");
   metrics.className = "metrics";
   metrics.append(
-    metric("Days", itinerary.days),
-    metric("Target", `${formatNumber(itinerary.target_duration_h)} h/day`),
     metric("Avg", `${formatNumber(itinerary.average_daily_duration_h)} h/day`),
-    metric("Match", `±${formatNumber(itinerary.duration_match_score)} h`),
     metric("Time", `${formatNumber(itinerary.total_duration_h)} h`),
     metric("Distance", `${formatNumber(itinerary.total_distance_km)} km`),
     metric("Ascent", `${formatNumber(itinerary.total_ascent_m)} m`),
     metric("Descent", `${formatNumber(itinerary.total_descent_m)} m`),
-    metric("Category", itinerary.max_hiking_category, "category"),
+    metric("Category", itinerary.max_hiking_category),
   );
 
   summary.append(headingBlock, metrics);
@@ -357,7 +354,7 @@ function formParams() {
     max_duration_h: data.get("max_duration_h"),
     min_elevation_change_m: data.get("min_elevation_change_m"),
     max_elevation_change_m: data.get("max_elevation_change_m"),
-    limit: data.get("limit"),
+    limit: "50",
   });
 }
 

@@ -24,6 +24,7 @@ let hikingPathLayer;
 let activeBaseLayer;
 const hutMarkersByName = new Map();
 let selectedCard;
+let hasCalculatedRoute = false;
 
 function formatNumber(value) {
   return numberFormat.format(value);
@@ -56,6 +57,15 @@ function setStatus(message) {
 
 function clearResults() {
   results.replaceChildren();
+}
+
+function setStartingHutFromMarker(marker) {
+  if (hasCalculatedRoute) {
+    return;
+  }
+  startHutInput.value = marker.hut;
+  startHutInput.dispatchEvent(new Event("input", { bubbles: true }));
+  setStatus(`Starting hut set to ${marker.hut}. Adjust constraints and search routes.`);
 }
 
 function renderEmpty(message) {
@@ -116,7 +126,7 @@ function initMap() {
       opacity: 0.9,
     },
   );
-  setMapSource("swisstopo");
+  setMapSource("osm");
 
   hutLayer = L.layerGroup().addTo(map);
   routeLayer = L.layerGroup().addTo(map);
@@ -137,7 +147,7 @@ async function loadHutMarkers() {
     hutMarkersByName.set(marker.hut, marker);
     const latLng = [marker.latitude, marker.longitude];
     latLngs.push(latLng);
-    L.circleMarker(latLng, {
+    const hutMarker = L.circleMarker(latLng, {
       pane: "hutPane",
       interactive: true,
       radius: 5,
@@ -145,10 +155,12 @@ async function loadHutMarkers() {
       weight: 1,
       fillColor: "#236b52",
       fillOpacity: 0.75,
-    })
-      .bindTooltip(hutDetailsHtml(marker), { sticky: true })
-      .bindPopup(hutDetailsHtml(marker))
-      .addTo(hutLayer);
+    });
+
+    hutMarker.on("click popupopen", () => setStartingHutFromMarker(marker));
+    hutMarker.bindTooltip(hutDetailsHtml(marker), { sticky: true });
+    hutMarker.bindPopup(hutDetailsHtml(marker));
+    hutMarker.addTo(hutLayer);
   });
   if (latLngs.length) {
     map.fitBounds(latLngs, { padding: [24, 24] });
@@ -384,6 +396,7 @@ form.addEventListener("submit", async (event) => {
     const cards = data.itineraries.map(renderItinerary);
     results.replaceChildren(...cards);
     map.invalidateSize();
+    hasCalculatedRoute = true;
     await showItineraryOnMap(data.itineraries[0], cards[0]);
     setStatus(`Showing option 1 on the map.`);
   } catch (error) {

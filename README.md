@@ -21,6 +21,15 @@ Users can plan itineraries by specifying:
 - optional start hut
 - optional end hut
 
+In the web hut-to-hut planner, **Days includes arrival and departure**.
+Day 1 is the walk from public transport to the starting hut, and the final
+day is the walk from the last hut back to public transport. The minimum is
+2 days (one overnight stay); 3 days means two overnight stays and one
+hut-to-hut leg. All daily time and elevation-change limits apply to arrival
+and departure too. Trips without suitable mapped access at both ends are
+excluded. Totals include both access hikes using the correct direction of
+travel; unverified connections to the trail remain excluded.
+
 ## Architecture
 
 ### Offline preprocessing
@@ -62,6 +71,45 @@ Route legs include the hardest swisstopo hiking category found on the route:
 `Wanderweg`, `Bergwanderweg`, `Alpinwanderweg`, or `unknown`.
 
 ## Route Database
+
+### Build a trip
+
+Use **Build a trip** to select a starting hut and walking-time/elevation-change
+limits for each hut-to-hut leg. All matching paths to unvisited huts appear on
+the map and in the list. Select a destination, then choose **Continue from this
+hut** or **Finish via public transport**. Chosen legs remain visible, with a
+trip summary and an undo option. A completed trip can be reopened.
+
+The final exit follows the selected access path in reverse, with walking time
+computed in the hut-to-stop direction. It is separate from the hut-to-hut
+filters. Unverified connections to the trail remain dashed and are excluded
+from totals. Regenerate the access export after updating to prepare exit times.
+
+### Hut access view
+
+The **Hut access** tab displays the computed walking route from a public
+transport stop to a selected hut, with duration, distance, ascent, descent,
+and hiking category. Select a hut using the search field or click a hut on
+the map. Hut popups in the planner also have a **Show access route** button
+that opens the access view for that hut. Selecting a hut in the access field
+loads its route automatically. Walking details appear in both the results
+panel and the map popup. These are research candidates, not confirmed official access routes.
+Dashed gray lines show unverified connections between the stop/hut and the
+trail network; their distances are displayed separately and excluded from
+walking time.
+
+Prepare the local access database after generating the research candidates:
+
+```powershell
+.\.venv\Scripts\python.exe -m research.compute_pt_access_candidates
+.\.venv\Scripts\python.exe -m research.export_pt_access_routes
+```
+
+The exporter uses `research/hut_pt_access_candidates.csv` and the cached
+hiking graph to write `data/hut_access.sqlite`. Rerun it when candidates or
+the graph change. The app reads this database without loading the hiking
+graph. Generated CSV and SQLite files remain local and are ignored by Git.
+Huts without a computed path show a no-route message.
 
 `fill_hiking_route_database.py` generates the app-facing SQLite route database.
 It uses `find_hiking_routes.py` as the routing backend, but the final app should

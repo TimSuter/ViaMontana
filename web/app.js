@@ -1,3 +1,4 @@
+import { createTripBuilder } from './trip-builder.js?v=1';
 const form = document.querySelector("#search-form");
 const startHutInput = document.querySelector("#start-hut");
 const hutOptions = document.querySelector("#hut-options");
@@ -26,6 +27,129 @@ const hutMarkersByName = new Map();
 let allHutLatLngs = [];
 let selectedCard;
 let hasCalculatedRoute = false;
+let activeView = "planner";
+let tripBuilder;
+let viewVersion = 0;
+const accessForm = document.querySelector("#access-form");
+const accessHutInput = document.querySelector("#access-hut");
+
+async function switchView(view) {
+  tripBuilder?.deactivate();
+  activeView = view;
+  viewVersion += 1;
+  form.hidden = view !== "planner";
+  accessForm.hidden = view !== "access";
+  document.querySelector("#planner-tab").setAttribute("aria-pressed", String(view === "planner"));
+  document.querySelector("#access-tab").setAttribute("aria-pressed", String(view === "access"));
+  document.querySelector("#builder-tab").setAttribute("aria-pressed", String(view === "builder"));
+  resetMapView();
+  clearResults();
+  resultsTitle.textContent = view === "access" ? "Hut access" : "No search yet";
+  setStatus(view === "access" ? "Choose a hut to see its walk from public transport." : "Enter a hut and route constraints.");
+  map.invalidateSize();
+  if (view === "builder") { tripBuilder.activate(); return; }
+  if (view === "access") {
+    if (!accessHutInput.value) accessHutInput.value = startHutInput.value;
+    const version = viewVersion;
+    try {
+      const response = await fetch("/api/access-huts");
+      const data = await response.json();
+      if (version !== viewVersion) return;
+      if (!response.ok) throw new Error(data.detail || "Could not load huts.");
+      document.querySelector("#access-hut-options").replaceChildren(...data.huts.map((hut) => {
+        const option = document.createElement("option");
+        option.value = hut;
+        return option;
+      }));
+      if (!data.huts.length) setStatus("No access results are available yet.");
+    } catch (error) {
+      if (version === viewVersion) setStatus(error.message);
+    }
+  }
+}
+
+document.querySelector("#planner-tab").addEventListener("click", () => switchView("planner"));
+document.querySelector("#access-tab").addEventListener("click", () => switchView("access"));
+document.querySelector("#builder-tab").addEventListener("click", () => switchView("builder"));
+
+accessHutInput.addEventListener("change", () => {
+  if (activeView === "access" && accessHutInput.value.trim()) accessForm.requestSubmit();
+});
+
+function hutPopup(marker) {
+  const content = document.createElement("div");
+  const details = document.createElement("div");
+  details.innerHTML = hutDetailsHtml(marker);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "hut-access-button";
+  button.textContent = "Show access route";
+  button.addEventListener("click", async () => {
+    accessHutInput.value = marker.hut;
+    await switchView("access");
+    if (activeView === "access" && accessHutInput.value === marker.hut) accessForm.requestSubmit();
+  });
+  content.append(details, button);
+  return content;
+}
+
+accessForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const version = ++viewVersion;
+  map.closePopup();
+  routeLayer.clearLayers();
+  clearResults();
+  resultsTitle.textContent = "Loading access route";
+  setStatus("Loading the selected hut’s access route.");
+  try {
+    const response = await fetch(`/api/access-route?${new URLSearchParams({ hut: accessHutInput.value.trim() })}`);
+    const data = await response.json();
+    if (version !== viewVersion) return;
+    if (!response.ok) throw new Error(data.detail || "Could not load access route.");
+    resultsTitle.textContent = data.hut_name;
+    if (!data.geometry_wkt) {
+      setStatus("No mapped access route available.");
+      renderEmpty(`No walking path is available for this result (${data.candidate_status.replaceAll("_", " ")}).`);
+      if (Number.isFinite(data.hut_latitude) && Number.isFinite(data.hut_longitude)) map.setView([data.hut_latitude, data.hut_longitude], 13);
+      return;
+    }
+    const path = parseLineString(data.geometry_wkt);
+    const stop = [data.pt_stop_latitude, data.pt_stop_longitude];
+    const hut = [data.hut_latitude, data.hut_longitude];
+    L.polyline(path, { pane: "routePane", color: "#7b2cbf", weight: 5 }).addTo(routeLayer);
+    [[stop, path[0]], [path[path.length - 1], hut]].forEach((gap) => {
+      L.polyline(gap, { pane: "routePane", color: "#777", weight: 2, dashArray: "4 6" })
+        .bindTooltip("Connection to trail — walkability unverified").addTo(routeLayer);
+    });
+    let accessHutMarker;
+    [[stop, `Public transport: ${data.pt_stop_name}`], [hut, data.hut_name]].forEach(([point, title], index) => {
+      const marker = L.circleMarker(point, { pane: "selectedHutPane", radius: 8, color: "#174c3a", fillOpacity: 1 })
+        .bindTooltip(escapeHtml(title)).bindPopup(`<strong>${escapeHtml(title)}</strong><br>
+          Walk from ${escapeHtml(data.pt_stop_name)}<br>${formatNumber(data.duration_h)} h · ${formatNumber(data.distance_km)} km<br>
+          Ascent ${formatNumber(data.ascent_m)} m · Descent ${formatNumber(data.descent_m)} m<br>
+          ${escapeHtml(data.max_hiking_category)}<br>Computed access candidate; connections to trail unverified.`).addTo(routeLayer);
+      if (index === 1) accessHutMarker = marker;
+    });
+    map.fitBounds([...path, stop, hut], { padding: [30, 30] });
+    accessHutMarker.openPopup();
+    const details = document.createElement("div");
+    details.className = "access-details";
+    details.innerHTML = `<h3>${escapeHtml(data.pt_stop_name)} → ${escapeHtml(data.hut_name)}</h3>
+      <p>${formatNumber(data.duration_h)} h · ${formatNumber(data.distance_km)} km<br>
+      Ascent ${formatNumber(data.ascent_m)} m · Descent ${formatNumber(data.descent_m)} m</p>
+      <p>${escapeHtml(data.max_hiking_category)} · ${escapeHtml(data.difficulty_status)} difficulty coverage</p>
+      <p>Computed candidate; official hut access has not been confirmed.</p>
+      <p>Dashed lines connect the stop and hut to the mapped trail. These connections are unverified and excluded from walking time.</p>
+      <p>Stop to trail: ${formatNumber(data.pt_stop_snap_m)} m<br>Trail to hut: ${formatNumber(data.hut_snap_m)} m</p>`;
+    results.appendChild(details);
+    setStatus("Showing the walking route from public transport to the hut.");
+  } catch (error) {
+    if (version !== viewVersion) return;
+    resultsTitle.textContent = "Access route unavailable";
+    setStatus(error.message);
+    renderEmpty("Choose a hut from the suggestions and try again.");
+  }
+});
 
 function formatNumber(value) {
   return numberFormat.format(value);
@@ -61,6 +185,12 @@ function clearResults() {
 }
 
 function setStartingHutFromMarker(marker) {
+  if (activeView === "builder") { tripBuilder.selectStart(marker.hut); return; }
+  if (activeView === "access") {
+    accessHutInput.value = marker.hut;
+    accessForm.requestSubmit();
+    return;
+  }
   if (hasCalculatedRoute) {
     return;
   }
@@ -84,7 +214,7 @@ function resetMapView() {
   }
   selectedCard = undefined;
   hasCalculatedRoute = false;
-  if (allHutLatLngs.length) {
+  if (allHutLatLngs.length && activeView !== "builder") {
     map.fitBounds(allHutLatLngs, { padding: [24, 24] });
   } else {
     map.fitBounds(switzerlandBounds);
@@ -180,12 +310,12 @@ async function loadHutMarkers() {
       fillOpacity: 0.75,
     });
 
-    hutMarker.on("click popupopen", () => setStartingHutFromMarker(marker));
+    hutMarker.on("click", () => setStartingHutFromMarker(marker));
     hutMarker.bindTooltip(hutDetailsHtml(marker), { sticky: true });
-    hutMarker.bindPopup(hutDetailsHtml(marker));
+    hutMarker.bindPopup(() => hutPopup(marker));
     hutMarker.addTo(hutLayer);
   });
-  if (allHutLatLngs.length) {
+  if (allHutLatLngs.length && activeView !== "builder") {
     map.fitBounds(allHutLatLngs, { padding: [24, 24] });
   }
 }
@@ -199,6 +329,12 @@ function parseLineString(wkt) {
 }
 
 async function fetchLegGeometry(leg) {
+  if (leg.geometry_wkt) return leg;
+  if (leg.kind === 'arrival' || leg.kind === 'departure') {
+    const response = await fetch(`/api/access-leg?${new URLSearchParams({ hut: leg.access_hut, direction: leg.kind })}`);
+    if (!response.ok) throw new Error('Public transport access geometry could not be loaded.');
+    return response.json();
+  }
   const params = new URLSearchParams({
     start_hut: leg.start_hut,
     destination_hut: leg.destination_hut,
@@ -211,6 +347,7 @@ async function fetchLegGeometry(leg) {
 }
 
 async function showItineraryOnMap(itinerary, card) {
+  const version = viewVersion;
   map.invalidateSize();
   routeLayer.clearLayers();
   if (selectedCard) {
@@ -221,6 +358,7 @@ async function showItineraryOnMap(itinerary, card) {
 
   const bounds = [];
   const legs = await Promise.all(itinerary.legs.map(fetchLegGeometry));
+  if (version !== viewVersion) return;
   legs.forEach((leg, index) => {
     const latLngs = parseLineString(leg.geometry_wkt);
     const routeColor = routeColors[index % routeColors.length];
@@ -236,20 +374,31 @@ async function showItineraryOnMap(itinerary, card) {
       .bindPopup(
         [
           `<b>Day ${index + 1}</b>`,
-          `${leg.start_hut} -> ${leg.destination_hut}`,
+          `${escapeHtml(leg.start_hut)} -> ${escapeHtml(leg.destination_hut)}`,
           `${formatNumber(leg.duration_h)} h`,
           `${formatNumber(leg.distance_km)} km`,
           leg.max_hiking_category,
         ].join("<br>"),
       )
       .addTo(routeLayer);
+    if (leg.kind === 'arrival' || leg.kind === 'departure') {
+      [[leg.start_point, latLngs[0]], [latLngs.at(-1), leg.end_point]].forEach(gap => {
+        bounds.push(...gap);
+        L.polyline(gap, { pane: 'routePane', color: '#777', weight: 2, dashArray: '4 6' })
+          .bindTooltip('Unverified connection to trail; excluded from totals').addTo(routeLayer);
+      });
+      const stop = leg.kind === 'arrival' ? leg.start_point : leg.end_point;
+      const name = leg.kind === 'arrival' ? leg.start_hut : leg.destination_hut;
+      L.circleMarker(stop, { pane: 'selectedHutPane', radius: 8, color: routeColor, fillOpacity: 1 })
+        .bindTooltip(`Public transport: ${escapeHtml(name)}`).bindPopup(`Public transport: ${escapeHtml(name)}`).addTo(routeLayer);
+    }
   });
 
   itinerary.huts.forEach((hut, index) => {
     const marker = hutMarkersByName.get(hut) ?? { hut };
-    const leg = legs[index === 0 ? 0 : index - 1];
+    const leg = legs.find(leg => leg.destination_hut === hut && leg.kind !== 'departure');
     const latLngs = parseLineString(leg.geometry_wkt);
-    const latLng = index === 0 ? latLngs[0] : latLngs.at(-1);
+    const latLng = Number.isFinite(marker.latitude) ? [marker.latitude, marker.longitude] : (leg.end_point ?? latLngs.at(-1));
     L.circleMarker(latLng, {
       pane: "selectedHutPane",
       interactive: true,
@@ -260,7 +409,7 @@ async function showItineraryOnMap(itinerary, card) {
       fillOpacity: 1,
     })
       .bindTooltip(hutDetailsHtml(marker), { sticky: true })
-      .bindPopup(hutDetailsHtml(marker))
+      .bindPopup(() => hutPopup(marker))
       .addTo(routeLayer);
   });
 
@@ -310,12 +459,13 @@ function renderItinerary(itinerary, index) {
   title.textContent = `Option ${index + 1}`;
   const chain = document.createElement("div");
   chain.className = "hut-chain";
-  chain.textContent = itinerary.huts.join(" -> ");
+  chain.textContent = [itinerary.legs[0].start_hut, ...itinerary.legs.map(leg => leg.destination_hut)].join(" → ");
   headingBlock.append(title, chain);
 
   const metrics = document.createElement("div");
   metrics.className = "metrics";
   metrics.append(
+    metric("Trip", `${itinerary.days} days · ${itinerary.overnight_stays} overnight stay${itinerary.overnight_stays === 1 ? '' : 's'}`),
     metric("Avg", `${formatNumber(itinerary.average_daily_duration_h)} h/day`),
     metric("Time", `${formatNumber(itinerary.total_duration_h)} h`),
     metric("Distance", `${formatNumber(itinerary.total_distance_km)} km`),
@@ -341,7 +491,8 @@ function renderItinerary(itinerary, index) {
     swatch.setAttribute("aria-hidden", "true");
     const route = document.createElement("div");
     route.className = "leg-route";
-    route.textContent = `Day ${legIndex + 1}: ${leg.start_hut} -> ${leg.destination_hut}`;
+    const dayType = leg.kind === 'arrival' ? ' · Arrival' : leg.kind === 'departure' ? ' · Departure' : '';
+    route.textContent = `Day ${legIndex + 1}${dayType}: ${leg.start_hut} → ${leg.destination_hut}`;
     routeLine.append(swatch, route);
 
     const stats = document.createElement("div");
@@ -359,11 +510,14 @@ function renderItinerary(itinerary, index) {
   });
 
   async function selectItinerary() {
+    const version = viewVersion;
     try {
       setStatus("Loading selected route geometry.");
       await showItineraryOnMap(itinerary, card);
+      if (version !== viewVersion) return;
       setStatus(`Showing option ${index + 1} on the map.`);
     } catch (error) {
+      if (version !== viewVersion) return;
       setStatus(error.message);
     }
   }
@@ -395,6 +549,7 @@ function formParams() {
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
+  const version = ++viewVersion;
   clearResults();
   resultsTitle.textContent = "Searching";
   setStatus("Reading precomputed route legs from SQLite.");
@@ -402,6 +557,7 @@ form.addEventListener("submit", async (event) => {
   try {
     const response = await fetch(`/api/search?${formParams()}`);
     const data = await response.json();
+    if (version !== viewVersion) return;
     if (!response.ok) {
       throw new Error(data.detail || "Search failed.");
     }
@@ -410,7 +566,7 @@ form.addEventListener("submit", async (event) => {
     setStatus(`${data.days} day route search from ${data.start_hut}.`);
 
     if (!data.itineraries.length) {
-      renderEmpty("No route chain matched these constraints.");
+      renderEmpty("No complete trip matches these limits. Arrival and departure walks must also meet the daily filters and have mapped access routes. Try lowering the minimum hiking time or widening the elevation limits.");
       routeLayer.clearLayers();
       loadHutMarkers();
       return;
@@ -421,8 +577,10 @@ form.addEventListener("submit", async (event) => {
     map.invalidateSize();
     hasCalculatedRoute = true;
     await showItineraryOnMap(data.itineraries[0], cards[0]);
+    if (version !== viewVersion) return;
     setStatus(`Showing option 1 on the map.`);
   } catch (error) {
+    if (version !== viewVersion) return;
     resultsTitle.textContent = "Search failed";
     setStatus(error.message);
     renderEmpty("Check that the route database exists and the hut name is valid.");
@@ -430,6 +588,7 @@ form.addEventListener("submit", async (event) => {
 });
 
 form.addEventListener("reset", () => {
+  viewVersion += 1;
   window.setTimeout(() => {
     resetPlannerView();
     loadHutOptions();
@@ -452,4 +611,6 @@ mapSourceInputs.forEach((input) => {
 
 loadHutOptions();
 initMap();
+tripBuilder = createTripBuilder({ map, routeLayer, hutLayer, results, resultsTitle, setStatus, parseLineString, formatNumber, escapeHtml });
+document.querySelector('#builder-hut').addEventListener('input', event => loadHutOptions(event.target.value));
 loadHutMarkers();

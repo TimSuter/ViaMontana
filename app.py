@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import sqlite3
+import json
 from functools import lru_cache
 from math import asin, cos, radians, sin, sqrt
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -14,6 +15,7 @@ from pydantic import BaseModel
 
 DEFAULT_DATABASE = Path("data") / "hiking_routes.sqlite"
 DEFAULT_HUTS = Path("my_geodataframe.pkl")
+DEFAULT_ACCESS_DATABASE = Path(__file__).parent / "data" / "hut_access.sqlite"
 STATIC_DIR = Path(__file__).parent / "web"
 MEDIA_DIR = Path(__file__).parent / "media"
 MAX_DAYS = 10
@@ -36,6 +38,10 @@ def normalize_result_limit(value: str | None) -> int:
 
 
 class RouteLeg(BaseModel):
+    kind: Literal["hut_to_hut", "arrival", "departure"] = "hut_to_hut"
+    access_hut: str | None = None
+    start_point: tuple[float, float] | None = None
+    end_point: tuple[float, float] | None = None
     start_hut: str
     destination_hut: str
     duration_h: float
@@ -57,6 +63,7 @@ class HutMarker(BaseModel):
 
 class Itinerary(BaseModel):
     huts: list[str]
+    overnight_stays: int
     days: int
     target_duration_h: float
     duration_match_score: float
@@ -273,10 +280,13 @@ def duration_match_score(legs: list[RouteLeg], target_duration_h: float) -> floa
 
 
 def itinerary_from_legs(legs: list[RouteLeg], target_duration_h: float) -> Itinerary:
-    huts = [legs[0].start_hut] + [leg.destination_hut for leg in legs]
+    huts = [leg.destination_hut for leg in legs if leg.kind != "departure"]
+    if legs[0].kind != "arrival":
+        huts.insert(0, legs[0].start_hut)
     total_duration_h = sum(leg.duration_h for leg in legs)
     return Itinerary(
         huts=huts,
+        overnight_stays=len(huts),
         days=len(legs),
         target_duration_h=round(target_duration_h, 3),
         duration_match_score=round(duration_match_score(legs, target_duration_h), 3),
@@ -317,6 +327,28 @@ def huts(search: str = "", limit: Annotated[int, Query(ge=1, le=200)] = 50) -> d
     with connect_database() as connection:
         rows = connection.execute(query, params).fetchall()
     return {"huts": [str(row["hut"]) for row in rows]}
+
+
+def connect_access_database() -> sqlite3.Connection:
+    if not DEFAULT_ACCESS_DATABASE.exists():
+        raise HTTPException(status_code=503, detail="Hut access routes have not been prepared yet.")
+    return sqlite3.connect(f"{DEFAULT_ACCESS_DATABASE.as_uri()}?mode=ro", uri=True)
+
+
+@app.get("/api/access-huts")
+def access_huts() -> dict[str, list[str]]:
+    with connect_access_database() as connection:
+        rows = connection.execute("SELECT hut FROM access_routes ORDER BY hut").fetchall()
+    return {"huts": [row[0] for row in rows]}
+
+
+@app.get("/api/access-route")
+def access_route(hut: str) -> dict:
+    with connect_access_database() as connection:
+        row = connection.execute("SELECT payload FROM access_routes WHERE hut = ?", (hut,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="No access result is available for this hut.")
+    return json.loads(row[0])
 
 
 @app.get("/api/hut-markers", response_model=list[HutMarker])
@@ -395,10 +427,78 @@ def route(start_hut: str, destination_hut: str) -> RouteLeg:
     return route_leg_from_row(row, include_geometry=True)
 
 
+@app.get("/api/next-huts", response_model=list[RouteLeg])
+def next_huts(
+    start_hut: str,
+    min_duration_h: Annotated[float, Query(ge=0)] = 0,
+    max_duration_h: Annotated[float, Query(ge=0)] = 14,
+    min_elevation_change_m: Annotated[float, Query(ge=0)] = 0,
+    max_elevation_change_m: Annotated[float, Query(ge=0)] = 5000,
+) -> list[RouteLeg]:
+    if min_duration_h > max_duration_h or min_elevation_change_m > max_elevation_change_m:
+        raise HTTPException(status_code=400, detail="Minimum limits must not exceed maximum limits.")
+    with connect_database() as connection:
+        rows = connection.execute(
+            """SELECT * FROM routes WHERE start_hut = ? AND destination_hut != start_hut
+               AND duration_h BETWEEN ? AND ?
+               AND (ascent_m + descent_m) BETWEEN ? AND ?
+               ORDER BY duration_h, destination_hut""",
+            (start_hut, min_duration_h, max_duration_h, min_elevation_change_m, max_elevation_change_m),
+        ).fetchall()
+    return [route_leg_from_row(row, include_geometry=True) for row in rows]
+
+
+@app.get("/api/exit-route")
+def exit_route(hut: str) -> dict:
+    data = access_route(hut)
+    if not data.get("geometry_wkt"):
+        raise HTTPException(status_code=404, detail="No mapped public transport exit is available for this hut. Choose another hut or continue hiking.")
+    if data.get("exit_duration_h") is None:
+        raise HTTPException(status_code=503, detail="Public transport exit routes need to be prepared.")
+    coordinates = list(reversed(parse_linestring_coordinates(data["geometry_wkt"])))
+    data["geometry_wkt"] = "LINESTRING (" + ", ".join(f"{lon} {lat}" for lon, lat in coordinates) + ")"
+    data["duration_h"] = data.pop("exit_duration_h")
+    data["ascent_m"], data["descent_m"] = data["descent_m"], data["ascent_m"]
+    return data
+
+
+def transport_leg(data: dict, direction: Literal["arrival", "departure"]) -> RouteLeg | None:
+    if not data.get("geometry_wkt") or (direction == "departure" and data.get("exit_duration_h") is None):
+        return None
+    departing = direction == "departure"
+    geometry = data["geometry_wkt"]
+    if departing:
+        geometry = "LINESTRING (" + ", ".join(f"{lon} {lat}" for lon, lat in reversed(parse_linestring_coordinates(geometry))) + ")"
+    hut_point = (float(data["hut_latitude"]), float(data["hut_longitude"]))
+    stop_point = (float(data["pt_stop_latitude"]), float(data["pt_stop_longitude"]))
+    return RouteLeg(
+        kind=direction, access_hut=data["hut_name"],
+        start_hut=data["hut_name"] if departing else data["pt_stop_name"],
+        destination_hut=data["pt_stop_name"] if departing else data["hut_name"],
+        start_point=hut_point if departing else stop_point,
+        end_point=stop_point if departing else hut_point,
+        duration_h=data["exit_duration_h"] if departing else data["duration_h"],
+        distance_km=data["distance_km"],
+        ascent_m=data["descent_m"] if departing else data["ascent_m"],
+        descent_m=data["ascent_m"] if departing else data["descent_m"],
+        elevation_change_m=data["ascent_m"] + data["descent_m"],
+        max_hiking_category=data["max_hiking_category"], difficulty_status=data["difficulty_status"],
+        geometry_wkt=geometry,
+    )
+
+
+@app.get("/api/access-leg", response_model=RouteLeg)
+def access_leg(hut: str, direction: Literal["arrival", "departure"]) -> RouteLeg:
+    leg = transport_leg(access_route(hut), direction)
+    if leg is None:
+        raise HTTPException(status_code=404, detail="No mapped access leg is available in this direction.")
+    return leg
+
+
 @app.get("/api/search", response_model=SearchResponse)
 def search_routes(
     start_hut: str,
-    days: Annotated[int, Query(ge=1, le=MAX_DAYS)],
+    days: Annotated[int, Query(ge=2, le=MAX_DAYS)],
     min_duration_h: Annotated[float, Query(ge=0)] = 2.0,
     max_duration_h: Annotated[float, Query(ge=0)] = 14.0,
     min_elevation_change_m: Annotated[float, Query(ge=0)] = 0.0,
@@ -407,6 +507,8 @@ def search_routes(
     include_geometry: bool = False,
 ) -> SearchResponse:
     result_limit = normalize_result_limit(limit)
+    if not 2 <= days <= MAX_DAYS:
+        raise HTTPException(status_code=422, detail=f"days must be between 2 and {MAX_DAYS}, including arrival and departure.")
     if max_duration_h < min_duration_h:
         raise HTTPException(status_code=400, detail="max_duration_h must be >= min_duration_h.")
     if max_elevation_change_m < min_elevation_change_m:
@@ -441,6 +543,15 @@ def search_routes(
             ),
         ).fetchall()
 
+    with connect_access_database() as connection:
+        access_data = {row[0]: json.loads(row[1]) for row in connection.execute("SELECT hut, payload FROM access_routes")}
+
+    def meets_limits(leg: RouteLeg | None) -> bool:
+        return leg is not None and min_duration_h <= leg.duration_h <= max_duration_h and min_elevation_change_m <= leg.elevation_change_m <= max_elevation_change_m
+
+    arrival = transport_leg(access_data[start_hut], "arrival") if start_hut in access_data else None
+    departures: dict[str, RouteLeg | None] = {}
+
     adjacency: dict[str, list[RouteLeg]] = {}
     for row in rows:
         leg = route_leg_from_row(row, include_geometry=True)
@@ -450,8 +561,12 @@ def search_routes(
     target_duration_h = (min_duration_h + max_duration_h) / 2
 
     def expand(current_hut: str, visited_huts: set[str], legs: list[RouteLeg]) -> None:
-        if len(legs) == days:
-            itineraries.append(itinerary_from_legs(legs, target_duration_h))
+        if len(legs) == days - 1:
+            if current_hut not in departures:
+                departures[current_hut] = transport_leg(access_data[current_hut], "departure") if current_hut in access_data else None
+            departure = departures.get(current_hut)
+            if meets_limits(departure):
+                itineraries.append(itinerary_from_legs(legs + [departure], target_duration_h))
             return
 
         for leg in adjacency.get(current_hut, []):
@@ -463,7 +578,8 @@ def search_routes(
                 legs + [leg],
             )
 
-    expand(start_hut, {start_hut}, [])
+    if meets_limits(arrival):
+        expand(start_hut, {start_hut}, [arrival])
     itineraries.sort(
         key=lambda itinerary: (
             route_overlap_ratio(itinerary.legs),

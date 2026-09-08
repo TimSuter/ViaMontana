@@ -427,25 +427,49 @@ def route(start_hut: str, destination_hut: str) -> RouteLeg:
     return route_leg_from_row(row, include_geometry=True)
 
 
-@app.get("/api/next-huts", response_model=list[RouteLeg])
+class NextHut(RouteLeg):
+    is_suggestion: bool = False
+
+
+@app.get("/api/next-huts", response_model=list[NextHut])
 def next_huts(
     start_hut: str,
     min_duration_h: Annotated[float, Query(ge=0)] = 0,
     max_duration_h: Annotated[float, Query(ge=0)] = 14,
     min_elevation_change_m: Annotated[float, Query(ge=0)] = 0,
     max_elevation_change_m: Annotated[float, Query(ge=0)] = 5000,
-) -> list[RouteLeg]:
+    include_suggestions: bool = False,
+    excluded_huts: Annotated[list[str] | None, Query()] = None,
+) -> list[NextHut]:
     if min_duration_h > max_duration_h or min_elevation_change_m > max_elevation_change_m:
         raise HTTPException(status_code=400, detail="Minimum limits must not exceed maximum limits.")
     with connect_database() as connection:
         rows = connection.execute(
             """SELECT * FROM routes WHERE start_hut = ? AND destination_hut != start_hut
-               AND duration_h BETWEEN ? AND ?
-               AND (ascent_m + descent_m) BETWEEN ? AND ?
                ORDER BY duration_h, destination_hut""",
-            (start_hut, min_duration_h, max_duration_h, min_elevation_change_m, max_elevation_change_m),
+            (start_hut,),
         ).fetchall()
-    return [route_leg_from_row(row, include_geometry=True) for row in rows]
+    excluded = set(excluded_huts or [])
+    matches, alternatives = [], []
+
+    def deviation(value: float, minimum: float, maximum: float, scale: float) -> float:
+        return max(minimum - value, value - maximum, 0) / max(maximum - minimum, scale)
+
+    for row in rows:
+        if row["destination_hut"] in excluded or not row["geometry_wkt"]:
+            continue
+        leg = NextHut(**route_leg_from_row(row, include_geometry=True).model_dump())
+        score = deviation(leg.duration_h, min_duration_h, max_duration_h, 1) + deviation(
+            leg.elevation_change_m, min_elevation_change_m, max_elevation_change_m, 100)
+        if score == 0:
+            matches.append(leg)
+        else:
+            leg.is_suggestion = True
+            alternatives.append((score, leg))
+    if include_suggestions and len(matches) < 3:
+        alternatives.sort(key=lambda item: (item[0], item[1].duration_h, item[1].destination_hut))
+        matches.extend(leg for _, leg in alternatives[:3])
+    return matches
 
 
 @app.get("/api/exit-route")
@@ -546,9 +570,6 @@ def search_routes(
     with connect_access_database() as connection:
         access_data = {row[0]: json.loads(row[1]) for row in connection.execute("SELECT hut, payload FROM access_routes")}
 
-    def meets_limits(leg: RouteLeg | None) -> bool:
-        return leg is not None and min_duration_h <= leg.duration_h <= max_duration_h and min_elevation_change_m <= leg.elevation_change_m <= max_elevation_change_m
-
     arrival = transport_leg(access_data[start_hut], "arrival") if start_hut in access_data else None
     departures: dict[str, RouteLeg | None] = {}
 
@@ -565,7 +586,7 @@ def search_routes(
             if current_hut not in departures:
                 departures[current_hut] = transport_leg(access_data[current_hut], "departure") if current_hut in access_data else None
             departure = departures.get(current_hut)
-            if meets_limits(departure):
+            if departure is not None:
                 itineraries.append(itinerary_from_legs(legs + [departure], target_duration_h))
             return
 
@@ -578,7 +599,7 @@ def search_routes(
                 legs + [leg],
             )
 
-    if meets_limits(arrival):
+    if arrival is not None:
         expand(start_hut, {start_hut}, [arrival])
     itineraries.sort(
         key=lambda itinerary: (

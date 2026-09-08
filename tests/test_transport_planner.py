@@ -54,9 +54,9 @@ def test_three_days_adds_one_hut_leg_and_counts_all_totals(planner_data):
     assert app.access_leg('B', 'departure').geometry_wkt
 
 
-@pytest.mark.parametrize('limits', [dict(min_duration_h=2.5), dict(max_duration_h=2.5), dict(max_elevation_change_m=950)])
-def test_arrival_and_departure_must_meet_daily_limits(planner_data, limits):
-    assert app.search_routes('A', 2, **limits).result_count == 0
+@pytest.mark.parametrize('limits', [dict(min_duration_h=2.5), dict(max_duration_h=2.5), dict(max_elevation_change_m=950), dict(min_elevation_change_m=1200)])
+def test_arrival_and_departure_ignore_daily_limits(planner_data, limits):
+    assert app.search_routes('A', 2, **limits).result_count == 1
 
 
 def test_missing_exit_excludes_incomplete_trip(planner_data):
@@ -71,3 +71,12 @@ def test_missing_arrival_and_no_one_day_trips(planner_data):
     with pytest.raises(HTTPException) as error:
         app.search_routes('A', 1)
     assert error.value.status_code == 422
+
+
+@pytest.mark.parametrize('limits', [dict(min_duration_h=6), dict(max_duration_h=4), dict(min_elevation_change_m=1200), dict(max_elevation_change_m=1000)])
+def test_hut_to_hut_legs_still_meet_limits(planner_data, limits):
+    assert app.search_routes('A', 3, **limits).result_count == 0
+
+
+def test_access_below_minimum_does_not_exclude_hut_to_hut_trip(planner_data):
+    assert app.search_routes('A', 3, min_duration_h=4, max_duration_h=6, min_elevation_change_m=1050).result_count == 1

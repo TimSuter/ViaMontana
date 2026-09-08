@@ -52,3 +52,27 @@ def test_exit_unavailable(monkeypatch):
     with pytest.raises(HTTPException) as error:
         app.exit_route("A")
     assert error.value.status_code == 404
+
+
+def test_suggestions_keep_matches_then_rank_near_misses(route_database):
+    legs = app.next_huts("A", 4, 8, 600, 1100, include_suggestions=True)
+    assert [(leg.destination_hut, leg.is_suggestion) for leg in legs] == [
+        ("B", False), ("C", False), ("D", True), ("E", True)]
+
+
+def test_no_matches_returns_three_closest_suggestions(route_database):
+    legs = app.next_huts("A", 6, 7, 600, 1100, include_suggestions=True)
+    assert [leg.destination_hut for leg in legs] == ["C", "B", "D"]
+    assert all(leg.is_suggestion and leg.geometry_wkt for leg in legs)
+
+
+def test_visited_huts_excluded_before_selecting_suggestions(route_database):
+    legs = app.next_huts("A", 4, 8, 600, 1100, include_suggestions=True, excluded_huts=["B", "D"])
+    assert [leg.destination_hut for leg in legs] == ["C", "E"]
+    assert app.next_huts("B", include_suggestions=True, excluded_huts=["A"]) == []
+
+
+def test_three_matches_need_no_alternatives(route_database):
+    legs = app.next_huts("A", 4, 9, 600, 1100, include_suggestions=True)
+    assert [leg.destination_hut for leg in legs] == ["B", "C", "D"]
+    assert not any(leg.is_suggestion for leg in legs)

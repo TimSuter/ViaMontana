@@ -25,8 +25,8 @@ In the web hut-to-hut planner, **Days includes arrival and departure**.
 Day 1 is the walk from public transport to the starting hut, and the final
 day is the walk from the last hut back to public transport. The minimum is
 2 days (one overnight stay); 3 days means two overnight stays and one
-hut-to-hut leg. All daily time and elevation-change limits apply to arrival
-and departure too. Trips without suitable mapped access at both ends are
+hut-to-hut leg. Time and elevation-change limits apply only to hut-to-hut legs; arrival
+and departure walks are exempt. Trips without suitable mapped access at both ends are
 excluded. Totals include both access hikes using the correct direction of
 travel; unverified connections to the trail remain excluded.
 
@@ -80,23 +80,26 @@ the map and in the list. Select a destination, then choose **Continue from this
 hut** or **Finish via public transport**. Chosen legs remain visible, with a
 trip summary and an undo option. A completed trip can be reopened.
 
+Changing parameters refreshes suggestions automatically. Time and elevation
+changes preserve chosen legs; changing the starting hut starts a new trip.
+When fewer than three unvisited huts match, up to three additional mapped
+routes are shown as labeled, dashed suggestions outside the limits. Alternatives are
+ranked by their combined time and elevation deviation, normalized by the
+selected ranges (at least 1 hour and 100 meters). If fewer routes exist,
+all available choices are shown with a note. Each option has its own color,
+matched in the map and list; chosen hikes and access walks use dark green.
+
 The final exit follows the selected access path in reverse, with walking time
 computed in the hut-to-stop direction. It is separate from the hut-to-hut
 filters. Unverified connections to the trail remain dashed and are excluded
 from totals. Regenerate the access export after updating to prepare exit times.
 
-### Hut access view
+The starting hut's access walk is shown on the map and included in the trip
+summary and totals. Arrival and exit walks are exempt from the hut-to-hut
+filters. If no starting access walk is available, the builder displays a
+message and still allows hut-to-hut planning.
 
-The **Hut access** tab displays the computed walking route from a public
-transport stop to a selected hut, with duration, distance, ascent, descent,
-and hiking category. Select a hut using the search field or click a hut on
-the map. Hut popups in the planner also have a **Show access route** button
-that opens the access view for that hut. Selecting a hut in the access field
-loads its route automatically. Walking details appear in both the results
-panel and the map popup. These are research candidates, not confirmed official access routes.
-Dashed gray lines show unverified connections between the stop/hut and the
-trail network; their distances are displayed separately and excluded from
-walking time.
+### Public transport access data
 
 Prepare the local access database after generating the research candidates:
 

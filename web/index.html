@@ -10,7 +10,7 @@
       integrity="sha256-p4NxAoJBhIINfQd6dfX4b8QBCGCmGCqMCVXRuA2nS0M="
       crossorigin=""
     />
-    <link rel="stylesheet" href="/static/styles.css?v=5" />
+    <link rel="stylesheet" href="/static/styles.css?v=6" />
   </head>
   <body>
     <main class="app-shell">
@@ -25,14 +25,8 @@
 
         <nav class="view-tabs" aria-label="Planning views">
           <button type="button" id="planner-tab" aria-pressed="true">Hut-to-hut planner</button>
-          <button type="button" id="access-tab" aria-pressed="false">Hut access</button>
           <button type="button" id="builder-tab" aria-pressed="false">Build a trip</button>
         </nav>
-        <form id="access-form" class="access-controls" hidden>
-          <label><span>Hut</span><input id="access-hut" type="search" list="access-hut-options" required placeholder="Type a hut name" autocomplete="off" /></label>
-          <datalist id="access-hut-options"></datalist>
-          <button type="submit">Show access route</button>
-        </form>
         <form id="search-form" class="controls">
           <label>
             <span>Starting hut</span>
@@ -54,7 +48,7 @@
           </label>
 
           <fieldset>
-            <legend>Hiking time per day</legend>
+            <legend>Hiking time per hut-to-hut leg</legend>
             <div class="control-grid">
               <label>
                 <span>Min hours</span>
@@ -68,7 +62,7 @@
           </fieldset>
 
           <fieldset>
-            <legend>Elevation change per day</legend>
+            <legend>Elevation change per hut-to-hut leg</legend>
             <div class="control-grid">
               <label>
                 <span>Min meters</span>
@@ -130,6 +124,6 @@
       integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
       crossorigin=""
     ></script>
-    <script src="/static/app.js?v=8" type="module"></script>
+    <script src="/static/app.js?v=11" type="module"></script>
   </body>
 </html>

@@ -699,3 +699,9 @@ button:hover {
 }
 
 .access-details.colored-route { border-left: 5px solid var(--route-color); }
+
+.trip-details { margin: 12px 0; }
+.trip-details > summary { cursor: pointer; font-weight: 600; padding: 8px 0; }
+.trip-details section { border-top: 1px solid #ddd; padding: 10px 0; }
+.trip-details h4 { margin: 0 0 6px; }
+.trip-details p { margin: 4px 0; }

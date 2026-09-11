@@ -24,10 +24,10 @@
         </div>
 
         <nav class="view-tabs" aria-label="Planning views">
-          <button type="button" id="planner-tab" aria-pressed="true">Hut-to-hut planner</button>
-          <button type="button" id="builder-tab" aria-pressed="false">Build a trip</button>
+          <button type="button" id="builder-tab" aria-pressed="true">Build a trip</button>
+          <button type="button" id="planner-tab" aria-pressed="false">Hut-to-hut planner</button>
         </nav>
-        <form id="search-form" class="controls">
+        <form id="search-form" class="controls" hidden>
           <label>
             <span>Starting hut</span>
             <input
@@ -80,7 +80,7 @@
             <button type="reset" class="secondary-button">Reset</button>
           </div>
         </form>
-        <form id="builder-form" class="access-controls" hidden>
+        <form id="builder-form" class="access-controls">
           <label><span>Starting hut</span><input id="builder-hut" name="start_hut" list="hut-options" type="search" required placeholder="Type a hut name" /></label>
           <label><span>Min hours per leg</span><input name="min_duration_h" type="number" min="0" step="0.25" value="4" required /></label>
           <label><span>Max hours per leg</span><input name="max_duration_h" type="number" min="0" step="0.25" value="8" required /></label>
@@ -95,9 +95,9 @@
           <div class="results-header">
             <div>
               <p class="eyebrow">Matches</p>
-              <h2 id="results-title">No search yet</h2>
+              <h2 id="results-title">Build a trip</h2>
             </div>
-            <p id="status-text" class="status-text">Enter a hut and route constraints.</p>
+            <p id="status-text" class="status-text">Choose a starting hut and limits for each hut-to-hut leg.</p>
           </div>
           <div id="results" class="results-list"></div>
         </aside>
@@ -124,6 +124,6 @@
       integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
       crossorigin=""
     ></script>
-    <script src="/static/app.js?v=11" type="module"></script>
+    <script src="/static/app.js?v=12" type="module"></script>
   </body>
 </html>

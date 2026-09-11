@@ -74,15 +74,16 @@ Route legs include the hardest swisstopo hiking category found on the route:
 
 ### Build a trip
 
-Use **Build a trip** to select a starting hut and walking-time/elevation-change
-limits for each hut-to-hut leg. All matching paths to unvisited huts appear on
+**Build a trip** opens by default. Select a starting hut and walking-time/elevation-change
+limits for each hut-to-hut leg. Only the immediately previous hut is excluded;
+huts visited earlier can be selected again. All matching paths to eligible huts appear on
 the map and in the list. Select a destination, then choose **Continue from this
 hut** or **Finish via public transport**. Chosen legs remain visible, with a
 trip summary and an undo option. A completed trip can be reopened.
 
 Changing parameters refreshes suggestions automatically. Time and elevation
 changes preserve chosen legs; changing the starting hut starts a new trip.
-When fewer than three unvisited huts match, up to three additional mapped
+When fewer than three eligible huts match, up to three additional mapped
 routes are shown as labeled, dashed suggestions outside the limits. Alternatives are
 ranked by their combined time and elevation deviation, normalized by the
 selected ranges (at least 1 hour and 100 meters). If fewer routes exist,

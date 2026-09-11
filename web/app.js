@@ -1,4 +1,4 @@
-import { createTripBuilder } from './trip-builder.js?v=4';
+import { createTripBuilder } from './trip-builder.js?v=5';
 const form = document.querySelector("#search-form");
 const startHutInput = document.querySelector("#start-hut");
 const hutOptions = document.querySelector("#hut-options");
@@ -27,7 +27,7 @@ const hutMarkersByName = new Map();
 let allHutLatLngs = [];
 let selectedCard;
 let hasCalculatedRoute = false;
-let activeView = "planner";
+let activeView = "builder";
 let tripBuilder;
 let viewVersion = 0;
 function switchView(view) {
@@ -510,5 +510,6 @@ mapSourceInputs.forEach((input) => {
 loadHutOptions();
 initMap();
 tripBuilder = createTripBuilder({ map, routeLayer, hutLayer, results, resultsTitle, setStatus, parseLineString, formatNumber, escapeHtml });
+switchView('builder');
 document.querySelector('#builder-hut').addEventListener('input', event => loadHutOptions(event.target.value));
 loadHutMarkers();

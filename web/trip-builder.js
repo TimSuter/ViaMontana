@@ -13,7 +13,7 @@ export function createTripBuilder({ map, routeLayer, hutLayer, results, resultsT
   const form = document.querySelector('#builder-form');
   let active = false, revision = 0, start = '', legs = [], choices = [], selected = null, exit = null, arrival = null, arrivalError = null, filters = {};
   const current = () => legs.at(-1)?.destination_hut ?? start;
-  const visited = () => new Set([start, ...legs.map(leg => leg.destination_hut)]);
+  const previousHut = () => legs.at(-1)?.start_hut;
   let refreshTimer, loading = false;
   const stats = leg => `${formatNumber(leg.duration_h)} h · ${formatNumber(leg.distance_km)} km · ↑ ${formatNumber(leg.ascent_m)} m · ↓ ${formatNumber(leg.descent_m)} m · ${leg.max_hiking_category}`;
   function button(text, action) {
@@ -112,8 +112,8 @@ export function createTripBuilder({ map, routeLayer, hutLayer, results, resultsT
       results.append(block('Loading next huts', 'Finding matching routes and suggested alternatives.'));
     } else {
       const suggestionCount = choices.filter(leg => leg.is_suggestion).length;
-      if (suggestionCount) results.append(block('Suggested alternatives', 'Fewer than three unvisited huts match your limits. Dashed routes labeled as suggestions are the closest available alternatives outside those limits.'));
-      if (choices.length < 3) results.append(block('Limited available routes', 'Fewer than three unvisited huts have mapped routes from this hut.'));
+      if (suggestionCount) results.append(block('Suggested alternatives', 'Fewer than three eligible huts match your limits. Dashed routes labeled as suggestions are the closest available alternatives outside those limits.'));
+      if (choices.length < 3) results.append(block('Limited available routes', 'Fewer than three eligible huts have mapped routes from this hut.'));
       choices.forEach(leg => {
         const select = () => { revision++; selected = leg; render(); };
         const color = optionColor(leg);
@@ -121,7 +121,7 @@ export function createTripBuilder({ map, routeLayer, hutLayer, results, resultsT
         marker(points[0], current(), tripColor); marker(points.at(-1), `${leg.destination_hut}${leg.is_suggestion ? ' (suggestion)' : ''}`, color, select);
         const card = block(leg.destination_hut, `${stats(leg)}${leg.is_suggestion ? ' - Suggestion: outside your current time or elevation limits.' : ''}`, color); card.append(button('Select hut', select)); results.append(card);
       });
-      if (!choices.length) results.append(block('No next huts', 'No unvisited huts have mapped routes from this hut. Undo the last leg or start a new trip with different limits.'));
+      if (!choices.length) results.append(block('No next huts', 'No eligible huts have mapped routes from this hut. Undo the last leg or start a new trip with different limits.'));
       if (legs.length) results.append(button('Finish from current hut via public transport', finish));
       setStatus(`${choices.length} available next huts (${suggestionCount} suggestions outside your limits). Select a route or destination marker on the map, or a hut in the list.`);
     }
@@ -131,7 +131,8 @@ export function createTripBuilder({ map, routeLayer, hutLayer, results, resultsT
     const version = ++revision; choices = []; loading = true; render(); setStatus('Loading available paths…');
     try {
       const params = new URLSearchParams({ ...filters, start_hut: current(), include_suggestions: 'true' });
-      visited().forEach(hut => params.append('excluded_huts', hut));
+      const previous = previousHut();
+      if (previous) params.append('excluded_huts', previous);
       const needsArrival = !arrival && !arrivalError;
       const [nextResult, arrivalResult] = await Promise.allSettled([
         request(`/api/next-huts?${params}`),
@@ -144,7 +145,7 @@ export function createTripBuilder({ map, routeLayer, hutLayer, results, resultsT
       }
       loading = false;
       if (nextResult.status === 'rejected') { render(); throw nextResult.reason; }
-      choices = nextResult.value.filter(leg => !visited().has(leg.destination_hut)); render();
+      choices = nextResult.value.filter(leg => leg.destination_hut !== previous); render();
     } catch (error) {
       if (active && version === revision) { setStatus(error.message); results.append(button('Retry loading paths', loadChoices)); }
     }

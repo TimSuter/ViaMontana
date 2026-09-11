@@ -1,4 +1,4 @@
-export function createTripBuilder({ map, routeLayer, hutLayer, results, resultsTitle, setStatus, parseLineString, formatNumber, escapeHtml }) {
+export function createTripBuilder({ map, focusMap, resetMapView, getHutLocation, routeLayer, hutLayer, results, resultsTitle, setStatus, parseLineString, formatNumber, escapeHtml }) {
   const tripColor = '#174c3a';
   const optionPalette = ['#0072b2', '#d55e00', '#8e44ad', '#cc397b', '#a07800', '#009eaa', '#6554c0', '#85502b'];
   const optionColors = new Map();
@@ -64,6 +64,11 @@ export function createTripBuilder({ map, routeLayer, hutLayer, results, resultsT
         .bindTooltip(escapeHtml(label)).addTo(routeLayer);
       if (action) dot.on('click', action);
     };
+    const startPoint = getHutLocation(start);
+    if (startPoint) {
+      bounds.push(startPoint);
+      if (!arrival && !legs.length) marker(startPoint, start, tripColor);
+    }
     resultsTitle.textContent = exit ? 'Trip complete' : `Next hut from ${current()}`;
     const chain = [...(arrival ? [arrival.start_hut] : []), start, ...legs.map(leg => leg.destination_hut), ...(exit ? [exit.pt_stop_name] : [])];
     const summary = block(exit ? 'Your completed trip' : 'Your trip', chain.join(' → '));
@@ -154,7 +159,7 @@ export function createTripBuilder({ map, routeLayer, hutLayer, results, resultsT
         ? `Hover for hike details. Click a route to add it.${suggestionCount ? ' Dashed routes are outside your limits.' : ''}`
         : 'No next hikes available. Undo or finish via public transport.');
     }
-    if (bounds.length) map.fitBounds(bounds, { padding: [32, 32] });
+    if (bounds.length && !loading) focusMap(bounds, { padding: [32, 32], maxZoom: 13 });
   }
   async function loadChoices() {
     const version = ++revision; choices = []; loading = true; render(); setStatus('Loading available paths…');
@@ -198,7 +203,8 @@ export function createTripBuilder({ map, routeLayer, hutLayer, results, resultsT
     const values = Object.fromEntries(new FormData(form));
     if (+values.min_duration_h > +values.max_duration_h || +values.min_elevation_change_m > +values.max_elevation_change_m) { setStatus('Minimum limits must not exceed maximum limits.'); return; }
     const nextStart = values.start_hut.trim(); if (!nextStart) return;
-    if (newTrip || nextStart !== start) {
+    const startingNewTrip = newTrip || nextStart !== start;
+    if (startingNewTrip) {
       optionColors.clear();
       detailsOpen = false;
       start = nextStart; legs = []; exit = arrival = arrivalError = null;
@@ -206,7 +212,26 @@ export function createTripBuilder({ map, routeLayer, hutLayer, results, resultsT
     delete values.start_hut; filters = values;
     exit = null;
     loadChoices();
+    if (startingNewTrip) {
+      const point = getHutLocation(start);
+      if (point) focusMap([point], { padding: [32, 32], maxZoom: 13 });
+    }
   }
+  form.addEventListener('reset', () => {
+    window.clearTimeout(refreshTimer);
+    revision++;
+    start = '';
+    legs = []; choices = [];
+    exit = arrival = arrivalError = null;
+    filters = {};
+    loading = detailsOpen = false;
+    optionColors.clear();
+    if (active) {
+      render();
+      resetMapView();
+      document.querySelector('#builder-hut').focus();
+    }
+  });
   form.addEventListener('input', () => {
     revision++;
     window.clearTimeout(refreshTimer);

@@ -1,4 +1,4 @@
-import { createTripBuilder } from './trip-builder.js?v=7';
+import { createTripBuilder } from './trip-builder.js?v=10';
 const form = document.querySelector("#search-form");
 const startHutInput = document.querySelector("#start-hut");
 const hutOptions = document.querySelector("#hut-options");
@@ -6,6 +6,7 @@ const results = document.querySelector("#results");
 const resultsTitle = document.querySelector("#results-title");
 const statusText = document.querySelector("#status-text");
 const routeMapElement = document.querySelector("#map");
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 const mapSourceInputs = document.querySelectorAll("input[name='map_source']");
 
 const numberFormat = new Intl.NumberFormat("en-US", {
@@ -105,6 +106,22 @@ function renderEmpty(message) {
   results.appendChild(empty);
 }
 
+function focusMap(bounds, options = {}) {
+  map.stop();
+  if (reducedMotion.matches) {
+    map.fitBounds(bounds, { ...options, animate: false });
+  } else {
+    map.flyToBounds(bounds, { ...options, animate: true, duration: 0.65 });
+  }
+}
+
+function getHutLocation(name) {
+  const hut = hutMarkersByName.get(name);
+  return hut && Number.isFinite(hut.latitude) && Number.isFinite(hut.longitude)
+    ? [hut.latitude, hut.longitude]
+    : null;
+}
+
 function resetMapView() {
   routeLayer.clearLayers();
   if (selectedCard) {
@@ -113,9 +130,9 @@ function resetMapView() {
   selectedCard = undefined;
   hasCalculatedRoute = false;
   if (allHutLatLngs.length && activeView !== "builder") {
-    map.fitBounds(allHutLatLngs, { padding: [24, 24] });
+    focusMap(allHutLatLngs, { padding: [24, 24] });
   } else {
-    map.fitBounds(switzerlandBounds);
+    focusMap(switzerlandBounds);
   }
 }
 
@@ -146,6 +163,10 @@ function initMap() {
   map = L.map(routeMapElement, {
     zoomControl: true,
     scrollWheelZoom: true,
+    zoomAnimation: !reducedMotion.matches,
+    markerZoomAnimation: !reducedMotion.matches,
+    fadeAnimation: !reducedMotion.matches,
+    inertia: !reducedMotion.matches,
   });
 
   map.createPane("hutPane");
@@ -214,7 +235,7 @@ async function loadHutMarkers() {
     hutMarker.addTo(hutLayer);
   });
   if (allHutLatLngs.length && activeView !== "builder") {
-    map.fitBounds(allHutLatLngs, { padding: [24, 24] });
+    focusMap(allHutLatLngs, { padding: [24, 24] });
   }
 }
 
@@ -312,7 +333,7 @@ async function showItineraryOnMap(itinerary, card) {
   });
 
   if (bounds.length) {
-    map.fitBounds(bounds, { padding: [32, 32] });
+    focusMap(bounds, { padding: [32, 32] });
   }
 }
 
@@ -509,7 +530,7 @@ mapSourceInputs.forEach((input) => {
 
 loadHutOptions();
 initMap();
-tripBuilder = createTripBuilder({ map, routeLayer, hutLayer, results, resultsTitle, setStatus, parseLineString, formatNumber, escapeHtml });
+tripBuilder = createTripBuilder({ map, focusMap, resetMapView, getHutLocation, routeLayer, hutLayer, results, resultsTitle, setStatus, parseLineString, formatNumber, escapeHtml });
 switchView('builder');
 document.querySelector('#builder-hut').addEventListener('input', event => loadHutOptions(event.target.value));
 loadHutMarkers();

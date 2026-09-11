@@ -11,6 +11,7 @@ export function createTripBuilder({ map, focusMap, resetMapView, getHutLocation,
     return optionColors.get(key);
   }
   const form = document.querySelector('#builder-form');
+  const tripActions = document.querySelector('#trip-actions');
   let active = false, revision = 0, start = '', legs = [], choices = [], exit = null, arrival = null, arrivalError = null, filters = {};
   const current = () => legs.at(-1)?.destination_hut ?? start;
   const previousHut = () => legs.at(-1)?.start_hut;
@@ -35,6 +36,8 @@ export function createTripBuilder({ map, focusMap, resetMapView, getHutLocation,
   }
   function render() {
     if (!active) return;
+    tripActions.replaceChildren();
+    tripActions.hidden = !start;
     map.invalidateSize();
     results.replaceChildren(); routeLayer.clearLayers(); map.closePopup();
     if (!start) {
@@ -132,7 +135,7 @@ export function createTripBuilder({ map, focusMap, resetMapView, getHutLocation,
       finishButton.disabled = loading;
       actions.append(finishButton);
     }
-    summary.append(actions);
+    tripActions.append(actions);
     results.append(summary);
     if (exit) {
       const points = draw(exit, tripColor);
@@ -243,7 +246,7 @@ export function createTripBuilder({ map, focusMap, resetMapView, getHutLocation,
   });
   return {
     activate() { active = true; form.hidden = false; if (start && !exit) loadChoices(); else render(); },
-    deactivate() { window.clearTimeout(refreshTimer); active = false; revision++; form.hidden = true; hutLayer.addTo(map); },
+    deactivate() { window.clearTimeout(refreshTimer); active = false; revision++; form.hidden = true; tripActions.hidden = true; hutLayer.addTo(map); },
     selectStart(hut) { if (!start) { document.querySelector('#builder-hut').value = hut; form.requestSubmit(); } },
   };
 }

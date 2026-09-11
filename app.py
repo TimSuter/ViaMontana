@@ -310,6 +310,11 @@ def index() -> FileResponse:
     return FileResponse(index_path)
 
 
+@app.get("/about")
+def about() -> FileResponse:
+    return FileResponse(STATIC_DIR / "about.html")
+
+
 @app.get("/api/huts")
 def huts(search: str = "", limit: Annotated[int, Query(ge=1, le=200)] = 50) -> dict[str, list[str]]:
     query = """

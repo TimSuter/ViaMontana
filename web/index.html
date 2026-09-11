@@ -10,22 +10,39 @@
       integrity="sha256-p4NxAoJBhIINfQd6dfX4b8QBCGCmGCqMCVXRuA2nS0M="
       crossorigin=""
     />
-    <link rel="stylesheet" href="/static/styles.css?v=7" />
+    <meta name="theme-color" content="#f7f7f5" />
+    <link rel="stylesheet" href="/static/styles.css?v=10" />
   </head>
   <body>
     <main class="app-shell">
-      <section class="planner-panel" aria-label="Route search">
+      <header class="app-header">
         <div class="brand-block">
           <img class="brand-logo" src="/media/logo.png" alt="ViaMontana logo" />
           <div class="brand-copy">
-            <p class="eyebrow">ViaMontana</p>
-            <h1>Plan hut-to-hut hiking trips along official Swiss trail routes.</h1>
+            <h1>ViaMontana</h1>
+            <p>Find your way through the Alps.</p>
           </div>
         </div>
+        <nav class="header-nav" aria-label="Site navigation">
+          <div class="language-control">
+            <select id="language-choice" aria-label="Language" aria-describedby="language-note">
+              <option value="en">English</option>
+              <option value="de">German</option>
+              <option value="fr">French</option>
+              <option value="it">Italian</option>
+            </select>
+            <p id="language-note" class="language-note" role="status" hidden></p>
+          </div>
+          <a href="/about">About</a>
+        </nav>
+      </header>
 
+      <section class="planner-panel" aria-label="Trip planning">
+        <div class="planner-scroll">
+        <div class="planner-controls">
         <nav class="view-tabs" aria-label="Planning views">
           <button type="button" id="builder-tab" aria-pressed="true">Build a trip</button>
-          <button type="button" id="planner-tab" aria-pressed="false">Hut-to-hut planner</button>
+          <button type="button" id="planner-tab" aria-pressed="false">Find itineraries</button>
         </nav>
         <form id="search-form" class="controls" hidden>
           <label>
@@ -48,7 +65,7 @@
           </label>
 
           <fieldset>
-            <legend>Hiking time per hut-to-hut leg</legend>
+            <legend>Hiking time <span>per leg</span></legend>
             <div class="control-grid">
               <label>
                 <span>Min hours</span>
@@ -62,7 +79,7 @@
           </fieldset>
 
           <fieldset>
-            <legend>Elevation change per hut-to-hut leg</legend>
+            <legend>Elevation change <span>per leg</span></legend>
             <div class="control-grid">
               <label>
                 <span>Min meters</span>
@@ -81,28 +98,41 @@
           </div>
         </form>
         <form id="builder-form" class="access-controls">
-          <label><span>Starting hut</span><input id="builder-hut" name="start_hut" list="hut-options" type="search" required placeholder="Type a hut name" /></label>
-          <label><span>Min hours per leg</span><input name="min_duration_h" type="number" min="0" step="0.25" value="4" required /></label>
-          <label><span>Max hours per leg</span><input name="max_duration_h" type="number" min="0" step="0.25" value="8" required /></label>
-          <label><span>Min elevation change (m)</span><input name="min_elevation_change_m" type="number" min="0" step="50" value="0" required /></label>
-          <label><span>Max elevation change (m)</span><input name="max_elevation_change_m" type="number" min="0" step="50" value="2400" required /></label>
-          <button type="reset" class="secondary-button">Reset</button>
+          <label><span>Starting hut</span><input id="builder-hut" name="start_hut" list="hut-options" type="search" autocomplete="off" required placeholder="Search for a mountain hut" /></label>
+          <p class="field-hint">Or choose a hut on the map.</p>
+          <fieldset>
+            <legend>Hiking time <span>per leg</span></legend>
+            <div class="control-grid">
+              <label><span>Min hours</span><input name="min_duration_h" type="number" min="0" step="0.25" value="4" required /></label>
+              <label><span>Max hours</span><input name="max_duration_h" type="number" min="0" step="0.25" value="8" required /></label>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Elevation change <span>per leg</span></legend>
+            <div class="control-grid">
+              <label><span>Min meters</span><input name="min_elevation_change_m" type="number" min="0" step="50" value="0" required /></label>
+              <label><span>Max meters</span><input name="max_elevation_change_m" type="number" min="0" step="50" value="2400" required /></label>
+            </div>
+          </fieldset>
+          <div class="builder-footer"><span>Updates as you go</span><button type="reset" class="secondary-button">Reset</button></div>
         </form>
-      </section>
-
-      <div class="workspace">
+        </div>
         <aside class="results-panel" aria-live="polite">
           <div class="results-header">
             <div>
-              <p class="eyebrow">Matches</p>
+              <p class="eyebrow">Your journey</p>
               <h2 id="results-title">Build a trip</h2>
             </div>
             <p id="status-text" class="status-text">Choose a starting hut and limits for each hut-to-hut leg.</p>
           </div>
           <div id="results" class="results-list"></div>
         </aside>
+        </div>
+        <div id="trip-actions" class="trip-actions" role="group" aria-label="Trip actions" hidden></div>
+      </section>
 
-        <section class="map-panel">
+      <div class="workspace">
+        <section class="map-panel" aria-label="Explore hiking routes">
           <fieldset class="map-source-toggle" aria-label="Map source">
             <legend>Map</legend>
             <label>
@@ -124,6 +154,7 @@
       integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
       crossorigin=""
     ></script>
-    <script src="/static/app.js?v=17" type="module"></script>
+    <script src="/static/header.js?v=1" type="module"></script>
+    <script src="/static/app.js?v=18" type="module"></script>
   </body>
 </html>

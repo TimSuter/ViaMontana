@@ -1,4 +1,4 @@
-import { createTripBuilder } from './trip-builder.js?v=10';
+import { createTripBuilder } from './trip-builder.js?v=11';
 const form = document.querySelector("#search-form");
 const startHutInput = document.querySelector("#start-hut");
 const hutOptions = document.querySelector("#hut-options");

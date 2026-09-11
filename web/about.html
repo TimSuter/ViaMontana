@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f7f7f5" />
+    <meta name="description" content="Explore ViaMontana, a simple way to plan hut-to-hut hiking trips in the Swiss Alps." />
+    <title>About · ViaMontana</title>
+    <link rel="stylesheet" href="/static/styles.css?v=10" />
+  </head>
+  <body class="about-page">
+    <header class="app-header">
+      <a class="brand-block brand-link" href="/" aria-label="ViaMontana home">
+        <img class="brand-logo" src="/media/logo.png" alt="" />
+        <div class="brand-copy">
+          <span class="brand-name">ViaMontana</span>
+          <p>Find your way through the Alps.</p>
+        </div>
+      </a>
+      <nav class="header-nav" aria-label="Site navigation">
+        <div class="language-control">
+          <select id="language-choice" aria-label="Language" aria-describedby="language-note">
+            <option value="en">English</option>
+            <option value="de">German</option>
+            <option value="fr">French</option>
+            <option value="it">Italian</option>
+          </select>
+          <p id="language-note" class="language-note" role="status" hidden></p>
+        </div>
+        <a href="/about" aria-current="page">About</a>
+      </nav>
+    </header>
+    <main class="about-content">
+      <a class="back-link" href="/">← Back to the map</a>
+      <section class="about-intro" aria-labelledby="about-title">
+        <p class="eyebrow">About ViaMontana</p>
+        <h1 id="about-title">A little planning.<br>A world of mountains.</h1>
+        <p>ViaMontana helps you put together hut-to-hut hiking trips in the Swiss Alps. Explore the trails, find your next hut, and build a journey that fits the way you like to walk.</p>
+        <a class="about-cta" href="/">Plan your trip <span aria-hidden="true">→</span></a>
+      </section>
+      <div class="about-sections">
+        <section>
+          <h2>Your trip, one hut at a time</h2>
+          <p>Start with a mountain hut, set your preferred hiking time and elevation change, then choose your next hike on the map. Or use Find itineraries to explore options for a multiday trip.</p>
+        </section>
+        <section>
+          <h2>See the whole journey</h2>
+          <p>Compare walking time, distance, ascent, descent, and hiking categories. Where available, access walks connect the first and last huts to public transport, helping you plan beyond the hut-to-hut stages.</p>
+        </section>
+        <section class="about-data">
+          <h2>Built around Swiss trails</h2>
+          <p>Routes follow swisstopo’s hiking trail network, with a choice of swisstopo and OpenStreetMap base maps. Walking times are estimates; unverified connections are shown separately and excluded from trip totals.</p>
+        </section>
+      </div>
+      <footer class="about-footer">ViaMontana <span>Find your way through the Alps.</span></footer>
+    </main>
+    <script src="/static/header.js?v=1" type="module"></script>
+  </body>
+</html>
